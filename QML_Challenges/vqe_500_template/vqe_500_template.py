@@ -20,9 +20,78 @@ def find_excited_states(H):
     """
 
     energies = np.zeros(3)
-
+    
+    
+    
     # QHACK #
+    def variational_ansatz(params, wires):
+    """
+    DO NOT MODIFY anything in this function! It is used to judge your solution.
+    This is ansatz is used to help with the problem structure. It applies
+    alternating layers of rotations and CNOTs.
+    Don't worry about the contents of this function for now—you'll be designing
+    your own ansatze in a later problem.
+    Args:
+        params (np.ndarray): An array of floating-point numbers with size (n, 3),
+            where n is the number of parameter sets required (this is determined by
+            the problem Hamiltonian).
+        wires (qml.Wires): The device wires this circuit will run on.
+    """
+    n_qubits = len(wires)
+    n_rotations = len(params)
 
+    if n_rotations > 1:
+        n_layers = n_rotations // n_qubits
+        n_extra_rots = n_rotations - n_layers * n_qubits
+
+        # Alternating layers of unitary rotations on every qubit followed by a
+        # ring cascade of CNOTs.
+        for layer_idx in range(n_layers):
+            layer_params = params[layer_idx * n_qubits : layer_idx * n_qubits + n_qubits, :]
+            qml.broadcast(qml.Rot, wires, pattern="single", parameters=layer_params)
+            qml.broadcast(qml.CNOT, wires, pattern="ring")
+
+        # There may be "extra" parameter sets required for which it's not necessarily
+        # to perform another full alternating cycle. Apply these to the qubits as needed.
+        extra_params = params[-n_extra_rots:, :]
+        extra_wires = wires[: n_qubits - 1 - n_extra_rots : -1]
+        
+    else:
+        # For 1-qubit case, just a single rotation to the qubit
+        qml.Rot(*params[0], wires=wires[0])           
+
+    num_qubits = len(H.wires)
+
+    dev = qml.device('default.qubit', wires=num_qubits)
+
+    from functools import partial
+    cost_fns = [qml.ExpvalCost(variational_ansatz, H, dev)]
+
+    opt = qml.AdamOptimizer(stepsize=0.1)
+
+    max_iterations = 500
+    rel_conv_tol = 1e-6
+
+    num_param_sets = num_qubits ** 2
+    # np.random.seed(1234)
+    params = np.random.uniform(low=-np.pi / 2, high=np.pi / 2,
+                               size=(num_param_sets, 2))
+
+
+    weights = np.array([3., 2., 1.])
+    weights = weights / np.sum(weights)
+
+    for n in range(max_iterations):
+
+        def cost_fn(params): return [qml.ExpvalCost(variational_ansatz, H, dev)]
+        params, prev_cost = opt.step_and_cost(cost_fn, params)
+        cost = cost_fn(params)
+        conv = np.abs((cost - prev_cost) / cost)
+
+
+        energies = sorted(list([cf(params) for cf in cost_fns]))
+   
+    
     # QHACK #
 
     return ",".join([str(E) for E in energies])
